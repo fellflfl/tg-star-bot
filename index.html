@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StarCases Mini App</title>
+    <!-- Скрипт ТГ теперь с атрибутом async — он НЕ тормозит загрузку страницы, если ТГ заблокирован -->
+    <script src="https://telegram.org/js/telegram-web-app.js" async></script>
+    <style>
+        :root {
+            --bg: #0f111a;
+            --card: #191c29;
+            --accent: #eab308;
+            --primary: #6366f1;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; user-select: none; }
+        body { background: var(--bg); color: var(--text); padding-bottom: 80px; max-width: 480px; margin: 0 auto; border-left: 1px solid #1e2230; border-right: 1px solid #1e2230; min-height: 100vh; }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px; background: var(--card); border-bottom: 1px solid #262b3d;
+            position: sticky; top: 0; z-index: 50;
+        }
+        .user-info { font-weight: 700; font-size: 16px; }
+        .balance-badge {
+            background: rgba(234, 179, 8, 0.15); border: 1px solid var(--accent);
+            color: var(--accent); padding: 6px 12px; border-radius: 20px; font-weight: 700;
+        }
+
+        .tab-content { display: none; padding: 16px; }
+        .tab-content.active { display: block; }
+        .section-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+
+        .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 16px; border: 1px solid #262b3d; }
+        .btn {
+            width: 100%; padding: 12px; border: none; border-radius: 12px;
+            font-weight: 700; font-size: 15px; cursor: pointer; transition: 0.2s;
+            background: var(--primary); color: white;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-gold { background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; }
+        .btn-sm { padding: 8px 10px; font-size: 12px; border-radius: 8px; }
+
+        .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .item-card {
+            background: #141722; border: 1px solid #262b3d; border-radius: 14px;
+            padding: 12px; text-align: center; transition: 0.2s; position: relative; cursor: pointer;
+        }
+        .item-card.selected { border-color: var(--accent); box-shadow: 0 0 12px rgba(234, 179, 8, 0.35); }
+        .item-emoji { font-size: 38px; margin-bottom: 6px; }
+        .item-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .item-price { font-size: 13px; color: var(--accent); font-weight: 700; margin-bottom: 8px; }
+
+        .wheel-box {
+            position: relative; width: 220px; height: 220px; margin: 10px auto 20px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .wheel-svg { width: 220px; height: 220px; transform: rotate(-90deg); }
+        .wheel-bg { fill: none; stroke: #262b3d; stroke-width: 16; }
+        .wheel-Fill { fill: none; stroke: var(--success); stroke-width: 16; stroke-dasharray: 0 565.48; transition: stroke-dasharray 0.3s; }
+        .wheel-center { position: absolute; text-align: center; }
+        .wheel-chance { font-size: 26px; font-weight: 800; }
+        .wheel-sub { font-size: 12px; color: var(--muted); }
+        .pointer-container {
+            position: absolute; width: 100%; height: 100%; top: 0; left: 0;
+            transition: transform 4s cubic-bezier(0.12, 0.8, 0.15, 1);
+        }
+        .pointer {
+            width: 0; height: 0; margin: -6px auto 0;
+            border-left: 8px solid transparent; border-right: 8px solid transparent;
+            border-top: 16px solid var(--accent);
+        }
+        .upgrader-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .slot-box { background: #141722; border: 1px dashed #3b425e; border-radius: 12px; padding: 12px; text-align: center; min-height: 110px; display: flex; flex-direction: column; justify-content: center; }
+
+        .bottom-nav {
+            position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto;
+            background: var(--card); display: flex; border-top: 1px solid #262b3d; padding: 8px 0; z-index: 50;
+        }
+        .nav-btn {
+            flex: 1; background: none; border: none; color: var(--muted);
+            font-size: 12px; font-weight: 600; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer;
+        }
+        .nav-btn.active { color: var(--accent); }
+        .toast {
+            position: fixed; top: 75px; left: 50%; transform: translateX(-50%);
+            background: #22c55e; color: #fff; padding: 10px 20px; border-radius: 12px;
+            font-weight: 700; font-size: 14px; display: none; z-index: 100; white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="toast" class="toast"></div>
+
+    <div class="header">
+        <div class="user-info" id="username">👤 Игрок</div>
+        <div class="balance-badge"><span id="balance">0</span> ⭐</div>
+    </div>
+
+    <!-- ПРОФИЛЬ -->
+    <div id="tab-profile" class="tab-content active">
+        <div class="card">
+            <div class="section-title">🎁 Ежеминутный бонус</div>
+            <p style="color: var(--muted); font-size: 14px; margin-bottom: 12px;">
+                Получайте +20 000 звезд на баланс каждую минуту!
+            </p>
+            <button id="bonus-btn" class="btn btn-gold" onclick="claimBonus()">Забрать +20 000 ⭐</button>
+        </div>
+
+        <div class="section-title">🎒 Ваш инвентарь (<span id="inv-count">0</span>)</div>
+        <div id="inventory-list" class="grid"></div>
+    </div>
+
+    <!-- КЕЙСЫ -->
+    <div id="tab-cases" class="tab-content">
+        <div class="section-title">📦 Выберите кейс</div>
+        <div class="grid">
+            <div class="item-card">
+                <div class="item-emoji">🥉</div>
+                <div class="item-name">Стартовый кейс</div>
+                <div class="item-price">1 000 ⭐</div>
+                <button class="btn btn-sm" onclick="openCase(1000)">Открыть</button>
+            </div>
+            <div class="item-card">
+                <div class="item-emoji">🥇</div>
+                <div class="item-name">Элитный кейс</div>
+                <div class="item-price">5 000 ⭐</div>
+                <button class="btn btn-sm" onclick="openCase(5000)">Открыть</button>
+            </div>
+            <div class="item-card" style="grid-column: span 2;">
+                <div class="item-emoji">💎</div>
+                <div class="item-name">Легендарный кейс</div>
+                <div class="item-price">10 000 ⭐</div>
+                <button class="btn btn-sm btn-gold" onclick="openCase(10000)">Открыть за 10 000 ⭐</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- АПГРЕЙДЕР -->
+    <div id="tab-upgrader" class="tab-content">
+        <div class="card">
+            <div class="wheel-box">
+                <svg class="wheel-svg" viewBox="0 0 200 200">
+                    <circle class="wheel-bg" cx="100" cy="100" r="90"></circle>
+                    <circle id="wheel-fill" class="wheel-Fill" cx="100" cy="100" r="90"></circle>
+                </svg>
+                <div id="pointer-box" class="pointer-container">
+                    <div class="pointer"></div>
+                </div>
+                <div class="wheel-center">
+                    <div id="chance-text" class="wheel-chance">0%</div>
+                    <div class="wheel-sub">Шанс успеха</div>
+                </div>
+            </div>
+
+            <div class="upgrader-slots">
+                <div class="slot-box" id="slot-my">
+                    <span style="color: var(--muted); font-size: 13px;">1. Выберите свой предмет ниже</span>
+                </div>
+                <div class="slot-box" id="slot-target">
+                    <span style="color: var(--muted); font-size: 13px;">2. Выберите цель апгрейда</span>
+                </div>
+            </div>
+
+            <button id="upgrade-btn" class="btn btn-gold" onclick="spinUpgrader()" disabled>Сделать апгрейд ⚡</button>
+        </div>
+
+        <div class="section-title">1. Ваши предметы для ставки:</div>
+        <div id="upg-my-items" class="grid" style="margin-bottom: 20px;"></div>
+
+        <div class="section-title">2. Желаемый предмет (Цель):</div>
+        <div id="upg-target-items" class="grid"></div>
+    </div>
+
+    <div class="bottom-nav">
+        <button class="nav-btn active" onclick="switchTab('profile', this)"><span>👤</span>Профиль</button>
+        <button class="nav-btn" onclick="switchTab('cases', this)"><span>📦</span>Кейсы</button>
+        <button class="nav-btn" onclick="switchTab('upgrader', this)"><span>⚡</span>Апгрейдер</button>
+    </div>
+
+    <script>
+        // Безопасная проверка Telegram WebApp (работает и без ТГ в обычном браузере)
+        window.addEventListener('load', () => {
+            if (window.Telegram && window.Telegram.WebApp) {
+                const tg = window.Telegram.WebApp;
+                tg.expand();
+                if (tg.initDataUnsafe?.user?.first_name) {
+                    document.getElementById('username').innerText = '👤 ' + tg.initDataUnsafe.user.first_name;
+                }
+            }
+        });
+
+        const ALL_ITEMS = [
+            { name: "Серебряный жетон", emoji: "🪙", price: 500 },
+            { name: "Редкий кристалл", emoji: "🔮", price: 1500 },
+            { name: "Золотой кубок", emoji: "🏆", price: 3000 },
+            { name: "Огненный клинок", emoji: "🗡️", price: 6500 },
+            { name: "Корона Короля", emoji: "👑", price: 12000 },
+            { name: "Звездный Дракон", emoji: "🐉", price: 25000 },
+            { name: "Космический Перстень", emoji: "💍", price: 50000 },
+            { name: "Галактический Трон", emoji: "🌌", price: 100000 }
+        ];
+
+        const CASE_DROPS = {
+            1000: [ALL_ITEMS[0], ALL_ITEMS[0], ALL_ITEMS[1], ALL_ITEMS[2]],
+            5000: [ALL_ITEMS[1], ALL_ITEMS[2], ALL_ITEMS[3], ALL_ITEMS[4]],
+            10000: [ALL_ITEMS[2], ALL_ITEMS[3], ALL_ITEMS[4], ALL_ITEMS[5]]
+        };
+
+        let state = JSON.parse(localStorage.getItem('star_game_state')) || {
+            balance: 20000,
+            lastBonus: 0,
+            inventory: []
+        };
+
+        let selectedMyIdx = null;
+        let selectedTargetIdx = null;
+        let currentRotation = 0;
+        let isSpinning = false;
+
+        function saveState() {
+            localStorage.setItem('star_game_state', JSON.stringify(state));
+            renderUI();
+        }
+
+        function showToast(msg, color = '#22c55e') {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.background = color;
+            t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 2500);
+        }
+
+        function switchTab(tab, btn) {
+            if (isSpinning) return;
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            btn.classList.add('active');
+            renderUI();
+        }
+
+        function claimBonus() {
+            const now = Date.now();
+            if (now - state.lastBonus < 60000) return;
+            state.balance += 20000;
+            state.lastBonus = now;
+            saveState();
+            showToast('🎁 +20 000 ⭐ начислено!');
+        }
+
+        setInterval(() => {
+            const btn = document.getElementById('bonus-btn');
+            const diff = 60000 - (Date.now() - state.lastBonus);
+            if (diff > 0) {
+                btn.disabled = true;
+                btn.innerText = `Подождите ${Math.ceil(diff / 1000)} сек...`;
+            } else {
+                btn.disabled = false;
+                btn.innerText = 'Забрать +20 000 ⭐';
+            }
+        }, 1000);
+
+        function openCase(cost) {
+            if (state.balance < cost) {
+                showToast('Недостаточно звезд! Заберите бонус в профиле', '#ef4444');
+                return;
+            }
+            state.balance -= cost;
+            const pool = CASE_DROPS[cost];
+            const dropped = { ...pool[Math.floor(Math.random() * pool.length)], id: Date.now() + Math.random() };
+            state.inventory.push(dropped);
+            saveState();
+            showToast(`🎉 Выпало: ${dropped.emoji} ${dropped.name} (${dropped.price} ⭐)!`);
+        }
+
+        function sellItem(idx) {
+            const item = state.inventory[idx];
+            state.balance += item.price;
+            state.inventory.splice(idx, 1);
+            selectedMyIdx = null;
+            saveState();
+            showToast(`Продано за ${item.price} ⭐`);
+        }
+
+        function selectMyItem(idx) {
+            if (isSpinning) return;
+            selectedMyIdx = idx;
+            selectedTargetIdx = null;
+            renderUI();
+        }
+
+        function selectTargetItem(idx) {
+            if (isSpinning) return;
+            selectedTargetIdx = idx;
+            renderUI();
+        }
+
+        function getChance() {
+            if (selectedMyIdx === null || selectedTargetIdx === null) return 0;
+            const myItem = state.inventory[selectedMyIdx];
+            const targetItem = ALL_ITEMS[selectedTargetIdx];
+            if (!myItem || !targetItem || targetItem.price <= myItem.price) return 0;
+            const raw = (myItem.price / targetItem.price) * 95;
+            return Math.min(80, Math.max(1, Number(raw.toFixed(1))));
+        }
+
+        function spinUpgrader() {
+            if (isSpinning) return;
+            const chance = getChance();
+            if (chance <= 0) return;
+
+            isSpinning = true;
+            document.getElementById('upgrade-btn').disabled = true;
+
+            const randomDeg = Math.random() * 360;
+            const winAngle = (chance / 100) * 360;
+            const isWin = randomDeg <= winAngle;
+
+            const extraSpins = 360 * 5;
+            currentRotation = currentRotation - (currentRotation % 360) + extraSpins + randomDeg;
+            document.getElementById('pointer-box').style.transform = `rotate(${currentRotation}deg)`;
+
+            setTimeout(() => {
+                const targetItem = ALL_ITEMS[selectedTargetIdx];
+                if (isWin) {
+                    state.inventory[selectedMyIdx] = { ...targetItem, id: Date.now() };
+                    showToast(`🔥 УСПЕХ! Вы получили ${targetItem.emoji} ${targetItem.name}!`, '#22c55e');
+                } else {
+                    state.inventory.splice(selectedMyIdx, 1);
+                    selectedMyIdx = null;
+                    selectedTargetIdx = null;
+                    showToast('💥 Неудача! Предмет сгорел', '#ef4444');
+                }
+                isSpinning = false;
+                saveState();
+            }, 4100);
+        }
+
+        function renderUI() {
+            document.getElementById('balance').innerText = state.balance.toLocaleString('ru-RU');
+            document.getElementById('inv-count').innerText = state.inventory.length;
+
+            const invEl = document.getElementById('inventory-list');
+            invEl.innerHTML = state.inventory.length === 0
+                ? '<p style="color:var(--muted); grid-column:span 2;">Инвентарь пуст. Откройте кейсы!</p>'
+                : state.inventory.map((item, i) => `
+                    <div class="item-card">
+                        <div class="item-emoji">${item.emoji}</div>
+                        <div class="item-name">${item.name}</div>
+                        <div class="item-price">${item.price.toLocaleString()} ⭐</div>
+                        <button class="btn btn-sm" onclick="sellItem(${i})">Продать</button>
+                    </div>
+                `).join('');
+
+            const myItemsEl = document.getElementById('upg-my-items');
+            myItemsEl.innerHTML = state.inventory.map((item, i) => `
+                <div class="item-card ${selectedMyIdx === i ? 'selected' : ''}" onclick="selectMyItem(${i})">
+                    <div class="item-emoji">${item.emoji}</div>
+                    <div class="item-name">${item.name}</div>
+                    <div class="item-price">${item.price.toLocaleString()} ⭐</div>
+                </div>
+            `).join('');
+
+            const myItem = selectedMyIdx !== null ? state.inventory[selectedMyIdx] : null;
+            document.getElementById('slot-my').innerHTML = myItem
+                ? `<div class="item-emoji">${myItem.emoji}</div><div class="item-name">${myItem.name}</div><div class="item-price">${myItem.price} ⭐</div>`
+                : '<span style="color: var(--muted); font-size: 13px;">1. Выберите свой предмет</span>';
+
+            const targetEl = document.getElementById('upg-target-items');
+            targetEl.innerHTML = ALL_ITEMS.map((item, i) => {
+                if (myItem && item.price <= myItem.price) return '';
+                return `
+                    <div class="item-card ${selectedTargetIdx === i ? 'selected' : ''}" onclick="selectTargetItem(${i})">
+                        <div class="item-emoji">${item.emoji}</div>
+                        <div class="item-name">${item.name}</div>
+                        <div class="item-price">${item.price.toLocaleString()} ⭐</div>
+                    </div>
+                `;
+            }).join('');
+
+            const targetItem = selectedTargetIdx !== null ? ALL_ITEMS[selectedTargetIdx] : null;
+            document.getElementById('slot-target').innerHTML = targetItem
+                ? `<div class="item-emoji">${targetItem.emoji}</div><div class="item-name">${targetItem.name}</div><div class="item-price">${targetItem.price} ⭐</div>`
+                : '<span style="color: var(--muted); font-size: 13px;">2. Выберите цель</span>';
+
+            const chance = getChance();
+            document.getElementById('chance-text').innerText = chance + '%';
+            const circumference = 2 * Math.PI * 90;
+            const fillLen = (chance / 100) * circumference;
+            document.getElementById('wheel-fill').style.strokeDasharray = `${fillLen} ${circumference}`;
+            document.getElementById('upgrade-btn').disabled = (chance <= 0 || isSpinning);
+        }
+
+        renderUI();
+    </script>
+</body>
+</html>
